@@ -1,0 +1,125 @@
+--Customer Order Summary (Standalone CTE)
+
+WITH CustomerSummary AS 
+(
+    SELECT
+        CustomerKey,
+        COUNT(DISTINCT SalesOrderNumber) AS TotalOrders,
+        SUM(SalesAmount) AS TotalRevenue,
+        MIN(CAST(OrderDate AS DATE)) AS FirstOrderDate,
+        MAX(CAST(OrderDate AS DATE)) AS LastOrderDate
+    FROM AdventureWorksDW2025.dbo.FactInternetSales
+    GROUP BY CustomerKey
+)
+SELECT *
+FROM CustomerSummary;
+
+
+--Customer Purchase Frequency Classification (Multiple CTEs)
+
+WITH TotalOrders AS 
+(
+    SELECT 
+        CustomerKey,
+        COUNT(DISTINCT SalesOrderNumber) AS TotalOrders
+    FROM AdventureWorksDW2025.dbo.FactInternetSales
+    GROUP BY CustomerKey
+),
+CustomerSegmentation AS 
+(
+    SELECT 
+        CustomerKey,
+        TotalOrders,
+        CASE
+            WHEN TotalOrders = 1 THEN 'One-Time Buyer'
+            WHEN TotalOrders BETWEEN 2 AND 4 THEN 'Occasional Buyer'
+            ELSE 'Frequent Buyer'
+        END AS CustomerType
+    FROM TotalOrders
+)
+SELECT *
+FROM CustomerSegmentation;
+
+
+--Monthly Revenue Trend Analysis (Nested CTE)
+
+WITH MonthlyRevenue AS 
+(
+    SELECT
+        YEAR(OrderDate) AS Years,
+        MONTH(OrderDate) AS Months,
+        SUM(SalesAmount) AS MonthlyRevenue
+    FROM AdventureWorksDW2025.dbo.FactInternetSales
+    GROUP BY 
+        YEAR(OrderDate),
+        MONTH(OrderDate)
+),
+CompareCurrentAndPreviousRevenue AS 
+(
+    SELECT 
+        Years,
+        Months,
+        MonthlyRevenue,
+        LAG(MonthlyRevenue) OVER(ORDER BY Years, Months) AS PreviousMonthRevenue,
+        MonthlyRevenue 
+            - LAG(MonthlyRevenue) OVER(ORDER BY Years, Months) AS RevenueDifference,
+        CASE
+            WHEN LAG(MonthlyRevenue) OVER(ORDER BY Years, Months) IS NULL
+                THEN 'No Previous Data'
+            WHEN MonthlyRevenue > LAG(MonthlyRevenue) OVER(ORDER BY Years, Months)
+                THEN 'Increasing'
+            ELSE 'Decreasing'
+        END AS TrendAnalysis
+    FROM MonthlyRevenue
+)
+SELECT *
+FROM CompareCurrentAndPreviousRevenue;
+
+--Top Customers by Revenue (CTE + Ranking)
+
+WITH TopCustomerByRevenue AS 
+(
+    SELECT
+        CustomerKey,
+        SUM(SalesAmount) AS TotalRevenue,
+        RANK() OVER(ORDER BY SUM(SalesAmount) DESC) AS RevenueRank
+    FROM AdventureWorksDW2025.dbo.FactInternetSales
+    GROUP BY CustomerKey
+)
+SELECT
+    CustomerKey,
+    TotalRevenue,
+    RevenueRank
+FROM TopCustomerByRevenue
+WHERE RevenueRank <= 10;
+
+
+--Customer Lifetime Value (CLV) Segmentation (Advanced CTE)
+
+WITH CustomerRevenue AS 
+(
+    SELECT 
+        CustomerKey,
+        SUM(SalesAmount) AS TotalRevenue,
+        NTILE(3) OVER(ORDER BY SUM(SalesAmount) DESC) AS RevenueBucket
+    FROM AdventureWorksDW2025.dbo.FactInternetSales
+    GROUP BY CustomerKey
+),
+CustomerSegment AS 
+(
+    SELECT 
+        CustomerKey,
+        TotalRevenue,
+        CASE
+            WHEN RevenueBucket = 1 THEN 'High CLV'
+            WHEN RevenueBucket = 2 THEN 'Medium CLV'
+            ELSE 'Low CLV'
+        END AS CLVSegment
+    FROM CustomerRevenue
+)
+SELECT 
+    CustomerKey, 
+    TotalRevenue,
+    CLVSegment
+FROM CustomerSegment;
+
